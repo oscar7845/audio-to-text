@@ -1,12 +1,14 @@
-import whisper
-from whisper.tokenizer import LANGUAGES
+import flet as ft
 
-# Page is a container for View (https://flet.dev/docs/controls/view) controls. 
-# A page instance and the root view are automatically created when a new user session started. 
-# Example: 
-import flet as ft 
-def main(page: ft.Page): 
-    page.title = "New page" 
-    page.add(ft.Text("Hello")) 
+def main(page: ft.Page):    
+    page.title = "Audio to Text App"
+    page.window_min_width = 840.0
+    page.window_min_height = 480.0
+    page.window_width = page.window_width if page.window_width is not None else page.window_min_width
+    page.window_height = page.window_height if page.window_height is not None else 820.0
 
-ft.app(target=main)
+    
+
+
+if __name__ == "__main__":
+    ft.app(target=main)
