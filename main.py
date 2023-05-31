@@ -24,6 +24,31 @@ def main(page: ft.Page):
         pass
 
 
+    model_dropdown = ft.Dropdown(
+            options=[
+            ],
+            label="Speech To Text Model",
+            expand=True,
+        )
+    
+    settings_controls = ft.Column(
+    [
+        ft.Container(
+            content=ft.Row(
+                [
+                    model_dropdown,                
+                ],
+            ),
+        ),
+    ],
+    visible=True
+)
+
+    page.add(
+        settings_controls,
+        #
+    )
+
 
 if __name__ == "__main__":
     ft.app(target=main)
