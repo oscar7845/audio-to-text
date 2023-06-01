@@ -141,19 +141,6 @@ def main(page: ft.Page):
     convertion_text = ft.Text("Start")
     convertion_icon = ft.Icon("play_arrow_rounded")
 
-    convertion_button = ft.ElevatedButton(
-        content=ft.Row(
-            [
-                convertion_icon,
-                convertion_text
-            ],
-            expand=True,
-            alignment=ft.MainAxisAlignment.CENTER,
-        ),
-        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
-        on_click=speech_processor_method,
-    )
-
     translate_lang_box = ft.Checkbox(disabled=lang_selector.value == 'en')
     translate_lang_box.disabled = True # otherwise default on
     
@@ -195,6 +182,23 @@ def main(page: ft.Page):
         text_size=15,
     )
 
+    power_slider = ft.Slider(min=0, max=PEAK_POW, value=params.get('volume_threshold', 300), expand=True, height=20)
+
+    convertion_button = ft.ElevatedButton(
+        content=ft.Row(
+            [
+                convertion_icon,
+                convertion_text
+            ],
+            expand=True,
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=5
+        ),
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+        bgcolor=ft.colors.TEAL_400, color=ft.colors.WHITE,
+        on_click=speech_processor_method,
+    )
+
     params_config = ft.Column(
     [
         ft.Container(
@@ -202,6 +206,7 @@ def main(page: ft.Page):
                 [
                     model_selector,
                 ],
+                spacing=10,
             ),
             padding=ft.padding.symmetric(horizontal=10, vertical=10),
         ),
@@ -210,6 +215,7 @@ def main(page: ft.Page):
                 [
                     mic_selector,
                 ],
+                spacing=10,
             ),
             padding=ft.padding.symmetric(horizontal=10, vertical=10),
         ),
@@ -227,21 +233,55 @@ def main(page: ft.Page):
             ),
             padding=ft.padding.symmetric(horizontal=10, vertical=10),
         ),
+        ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            translate_lang_box,
+                            keep_above_box,
+                            text_bg_box,
+                            nightmode_box,
+                        ]
+                    ),
+                ],
+            ),
+            padding=ft.padding.symmetric(horizontal=5, vertical=10),
+        ),
+        ft.Container(
+            content=ft.Row(
+                [
+                    power_slider,
+                ],
+                expand=True,
+            ),
+            padding=ft.padding.only(left=0, right=15, top=0),
+        ),
     ],
     visible=True
     )
 
-    #--#
-
-    power_slider = ft.Slider(min=0, max=PEAK_POW, value=params.get('volume_threshold', 300), expand=True, height=20)
-
+    draggable_zone1 = ft.Row(
+        [
+            ft.WindowDragArea(ft.Container(height=30), expand=True),
+        ],
+        visible=False
+    )
+    draggable_zone2 = ft.Row(
+        [
+            ft.WindowDragArea(ft.Container(height=30), expand=True),
+        ],
+        visible=False
+    )
 
     page.add(
         params_config,
+        draggable_zone1,
         ft.Container(
             content=convertion_button,
             padding=ft.padding.only(left=10, right=45, top=5)
         ),
+        draggable_zone2,
         ft.Container(
             content=convertion_lst,
             padding=ft.padding.only(left=15, right=45, top=5),
