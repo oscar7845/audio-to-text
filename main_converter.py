@@ -8,6 +8,9 @@ import audioop
 import wave
 from datetime import datetime
 from datetime import timedelta
+import whisper
+from queue import Queue
+import torch
 
 def main(page: ft.Page):  
     PEAK_POW = 5000
@@ -22,15 +25,12 @@ def main(page: ft.Page):
     page.window_width = page.window_width if page.window_width is not None else page.window_min_width
     page.window_height = page.window_height if page.window_height is not None else 820.0
 
-    # on change
+    app_params = "current_app_params.yaml"
+    params = yaml.safe_load(open(app_params, 'r')) if os.path.exists(app_params) else {}
 
-    # need new constants for methods
-    
     def keep_window_above_method(_):
        page.window_always_on_top = keep_above_box.value
        page.update()
-
-    keep_above_box = ft.Checkbox(on_change=keep_window_above_method)
 
     def text_background_method(_):
         for list_item in convertion_lst.controls:
@@ -40,36 +40,29 @@ def main(page: ft.Page):
                 list_item.bgcolor = None
         convertion_lst.update()
 
-    text_bg_box = ft.Checkbox(on_change=text_background_method)
-    nightmode_box = ft.Checkbox()
-    convertion_lst = ft.ListView()
-
-
-    def night_theme_method():
+    def night_theme_method(_):
         page.theme_mode = ft.ThemeMode.DARK if nightmode_box.value else ft.ThemeMode.LIGHT
-        text_background_method()
+        text_background_method(_)
         page.update()
 
+    def translate_language_method(_):
+        translate_lang_box.disabled = translate_lang_box.value = False if lang_selector.value == 'en' else translate_lang_box.disabled
+        translate_lang_box.update()
 
-    night_theme_method(None)
-    keep_window_above_method(None)
-    text_background_method(None)    
-
-    def font_size_method():
+    def font_size_method(_):
         for list_item in convertion_lst.controls:
             list_item.size = int(text_size_selector.value)
         convertion_lst.update()
 
-    params = {
-        'window_width': page.window_width,
-        'window_height': page.window_height,
-        'keep_above': keep_above_box.value,
-        'night_mode': nightmode_box.value,
-        'text_background': text_bg_box.value
-    }
-    #-----MAIN-----#
+    audio_type:whisper.Whisper = None
+    selected_audio_type:str = None
+    is_active_transcriber = False
+    end_capture:function = None
+    data_collection_thread:Thread = None
+    myqueue = Queue()
 
     def speech_processor_method(_):
+        nonlocal audio_type, selected_audio_type, is_active_transcriber, end_capture, data_collection_thread, start_recording_thread
         page.splash = ft.Container(
             content=ft.ProgressRing(),
             alignment=ft.alignment.center
@@ -80,6 +73,16 @@ def main(page: ft.Page):
             mytype = model_selector.value
             if mytype != "large" and lang_selector.value == 'en':
                 mytype = mytype + ".en"
+
+            if not audio_type or not selected_audio_type:
+                device = "cuda" if torch.has_cuda else 'cpu'
+                audio_type = whisper.load_model(mytype, device)
+                selected_audio_type = mytype
+            elif audio_type and selected_audio_type and selected_audio_type != mytype:
+                device = "cuda" if torch.has_cuda else 'cpu'
+                audio_type = whisper.load_model(mytype, device)
+                selected_audio_type = mytype
+
             type_index = int(mic_selector.value)
             if not data_collection_thread:
                 mystream = paudio.open(format=pyaudio.paInt16,
@@ -89,61 +92,87 @@ def main(page: ft.Page):
                                        frames_per_buffer=FPB,
                                        input_device_index=type_index)
                 data_collection_thread = Thread(target=recording_thread_method, args=[mystream])
+                start_recording_thread = True
                 data_collection_thread.start()
 
             convertion_text.value = "Stop Transcribing"
             convertion_icon.name = "end_transcriber"
+            convertion_button.bgcolor = ft.colors.DEEP_ORANGE_400
 
+            model_selector.disabled = True
+            mic_selector.disabled = True
+            lang_selector.disabled = True
+            translate_lang_box.disabled = True
             params_config.visible = False
+
+            if transparent_box.value:
+                page.window_bgcolor = ft.colors.TRANSPARENT
+                page.bgcolor = ft.colors.TRANSPARENT
+                page.window_title_bar_hidden = True
+                page.window_frameless = True
+                draggable_zone1.visible = True
+                draggable_zone2.visible = True
+
+            params = {
+                'speech_model': model_selector.value,
+                'translate': translate_lang_box.value,
+                'window_width': page.window_width,
+                'window_height': page.window_height,
+                'microphone_index': mic_selector.value,
+                'language': lang_selector.value,
+                'text_size': text_size_selector.value,
+                'keep_above': keep_above_box.value,
+                'night_mode': nightmode_box.value,
+                'text_background': text_bg_box.value,
+                'transparent': transparent_box.value,
+                'volume_threshold': power_slider.value,
+                'transcribe_rate': convert_frequency_seconds,
+                'upper_limit_record_time': upper_limit_record_time,
+                'seconds_of_silence_between_lines': quiet_time,
+            }
+
+            with open(app_params, 'w+') as f:
+                yaml.dump(params, f)
 
             is_active_transcriber = True
         else:
             convertion_text.value = "Start Receiving Audio"
             convertion_icon.name = "play_arrow_rounded"
             convertion_button.bgcolor = ft.colors.TEAL_400
+            sound_level_bar.value = 0.01
 
-            
-            if data_collection_thread:
-                data_collection_thread.join()
-                data_collection_thread = None
+            try:
+                if data_collection_thread:
+                    start_recording_thread = False
+                    data_collection_thread.join()
+                    data_collection_thread = None
+            except RuntimeError as e:
+                print(f"Error while interrupting the data collection thread: {e}")
 
-        page.update()
+            content_data = None
+            while not myqueue.empty():
+                content_data = myqueue.get()
+            if content_data:
+                myqueue.put(content_data)
 
-    text_size_selector = ft.Dropdown(
-        options=[ft.dropdown.Option(size) for size in range(8, 66, 2)],
-        label="Selected Text Size",
-        value=params.get('text_size', 24),
-        on_change=font_size_method,
-        text_size=15,
-    )
+            model_selector.disabled = False
+            mic_selector.disabled = False
+            lang_selector.disabled = False
+            translate_lang_box.disabled = lang_selector.value == 'en'
+            params_config.visible = True
 
-    def translate_language_method():
-        pass
+            page.window_bgcolor = None
+            page.bgcolor = None
+            page.window_title_bar_hidden = False
+            page.window_frameless = False
+            draggable_zone1.visible = False
+            draggable_zone2.visible = False
 
-    lang_options = [ft.dropdown.Option("Auto")]
-    lang_options += [ft.dropdown.Option(abbr, text=lang.capitalize()) for abbr, lang in LANGUAGES.items()]
-    lang_selector = ft.Dropdown(
-        options=lang_options,
-        label="Selected Language",
-        value=params.get('language', "Auto"),
-        text_size=15,
-        on_change=translate_language_method
-    )
+            text_file = "content.txt"
+            with open(text_file, 'w+', encoding='utf-8') as f:
+                f.writelines('\n'.join([item.value for item in convertion_lst.controls]))
 
-
-    def speech_processor_method(_):
-        page.splash = ft.Container(
-            content=ft.ProgressRing(),
-            alignment=ft.alignment.center
-        )
-        page.update()   
-
-    convertion_text = ft.Text("Start")
-    convertion_icon = ft.Icon("play_arrow_rounded")
-
-    translate_lang_box = ft.Checkbox(disabled=lang_selector.value == 'en')
-    translate_lang_box.disabled = True # otherwise default on
-    
+            is_active_transcriber = False
 
     ##
     # User Interface
@@ -182,7 +211,19 @@ def main(page: ft.Page):
         text_size=15,
     )
 
+    translate_lang_box = ft.Checkbox(label="Translate To English", value=params.get('translate', False), disabled=lang_selector.value == 'en')
+    nightmode_box = ft.Checkbox(label="Night Mode", value=params.get('night_mode', False), on_change=night_theme_method)
+    text_bg_box = ft.Checkbox(label="Text Background", value=params.get('text_background', False), on_change=text_background_method)
+    keep_above_box = ft.Checkbox(label="Keep Above", value=params.get('keep_above', False), on_change=keep_window_above_method)
+    transparent_box = ft.Checkbox(label="Transparent", value=params.get('transparent', False))
+
     power_slider = ft.Slider(min=0, max=PEAK_POW, value=params.get('volume_threshold', 300), expand=True, height=20)
+    sound_level_bar = ft.ProgressBar(value=0.01, color=ft.colors.DEEP_ORANGE_400)
+
+    convertion_lst = ft.ListView([], spacing=10, padding=20, expand=True, auto_scroll=True)
+
+    convertion_text = ft.Text("Start Receiving Audio")
+    convertion_icon = ft.Icon("play_arrow_rounded")
 
     convertion_button = ft.ElevatedButton(
         content=ft.Row(
