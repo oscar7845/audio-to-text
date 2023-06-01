@@ -11,6 +11,8 @@ from datetime import timedelta
 import whisper
 from queue import Queue
 import torch
+from time import sleep
+
 
 def main(page: ft.Page):  
     PEAK_POW = 5000
@@ -20,10 +22,10 @@ def main(page: ft.Page):
 
     # Setting up the window appearence  
     page.title = "Audio to Text App"
-    page.window_min_width = 750.0
+    page.window_min_width = 700.0
     page.window_min_height = 475.0
-    page.window_width = page.window_width if page.window_width is not None else page.window_min_width
-    page.window_height = page.window_height if page.window_height is not None else 820.0
+    page.window_min_width = 700.0
+    page.window_height = params.get('window_height', 820.0)
 
     app_params = "current_app_params.yaml"
     params = yaml.safe_load(open(app_params, 'r')) if os.path.exists(app_params) else {}
@@ -174,20 +176,25 @@ def main(page: ft.Page):
 
             is_active_transcriber = False
 
+        page.splash = None
+        page.update()
+
     ##
     # User Interface
     ##
 
     model_selector = ft.Dropdown(
         options=[
-            ft.dropdown.Option('tiny', text="Smallest"),
+            ft.dropdown.Option('tiny', text="Very small (Fastest, low quality)"),
             ft.dropdown.Option('base', text="Default"),
             ft.dropdown.Option('small', text="Small"),
             ft.dropdown.Option('medium', text="Medium"),
-            ft.dropdown.Option('large', text="Large"),
+            ft.dropdown.Option('large', text="Large (Slowest, high quality)"),
         ],
         label="Selected Audio/Speech to Text Type",
+        value=params.get('speech_model', 'base'),
         expand=True,
+        content_padding=ft.padding.only(top=5, bottom=5, left=10),
         text_size=15,
     )
 
@@ -206,7 +213,28 @@ def main(page: ft.Page):
     mic_selector = ft.Dropdown(
         options=[ft.dropdown.Option(index, text=mic) for index, mic in mics.items()],
         label="Selected Audio Input Device",
+        value=selected_microphone,
         expand=True,
+        content_padding=ft.padding.only(top=5, bottom=5, left=10),
+        text_size=15,
+    )
+
+    lang_options = [ft.dropdown.Option("Auto")]
+    lang_options += [ft.dropdown.Option(abbr, text=lang.capitalize()) for abbr, lang in LANGUAGES.items()]
+    lang_selector = ft.Dropdown(
+        options=lang_options,
+        label="Selected Language",
+        value=params.get('language', "Auto"),
+        content_padding=ft.padding.only(top=5, bottom=5, left=10),
+        text_size=15,
+        on_change=translate_language_method
+    )
+
+    text_size_selector = ft.Dropdown(
+        options=[ft.dropdown.Option(size) for size in range(8, 66, 2)],
+        label="Selected Text Size",
+        value=params.get('text_size', 24),
+        on_change=font_size_method,
         content_padding=ft.padding.only(top=5, bottom=5, left=10),
         text_size=15,
     )
@@ -246,6 +274,7 @@ def main(page: ft.Page):
             content=ft.Row(
                 [
                     model_selector,
+                
                 ],
                 spacing=10,
             ),
@@ -280,6 +309,7 @@ def main(page: ft.Page):
                     ft.Row(
                         [
                             translate_lang_box,
+                            transparent_box,
                             keep_above_box,
                             text_bg_box,
                             nightmode_box,
@@ -302,6 +332,7 @@ def main(page: ft.Page):
     visible=True
     )
 
+
     draggable_zone1 = ft.Row(
         [
             ft.WindowDragArea(ft.Container(height=30), expand=True),
@@ -322,6 +353,10 @@ def main(page: ft.Page):
             content=convertion_button,
             padding=ft.padding.only(left=10, right=45, top=5)
         ),
+        ft.Container(
+            content=sound_level_bar,
+            padding=ft.padding.only(left=10, right=45, top=0)
+        ),
         draggable_zone2,
         ft.Container(
             content=convertion_lst,
@@ -335,6 +370,8 @@ def main(page: ft.Page):
     def recording_thread_method(mystream:pyaudio.Stream):
         nonlocal PEAK_POW
         sample_size = paudio.get_sample_size(pyaudio.paInt16)
+        deep_orange = ft.colors.DEEP_ORANGE_400
+        teal = ft.colors.TEAL_400
         
         while start_recording_thread:
             # We record very fast in order to update volume bar as fast as possible
@@ -345,22 +382,37 @@ def main(page: ft.Page):
                 PEAK_POW = power
                 power_slider.max = PEAK_POW
                 power_slider.update()
+            
+            sound_level_bar.value = min(power / PEAK_POW, 1.0)
+            sound_level_bar.color = deep_orange if power < power_slider.value else teal
+            myqueue.put(content_data)
+            sound_level_bar.update()
+
 
     next_convert_instance = None
+    convert_frequency_seconds = float(params.get('transcribe_rate', 0.5))
+    convert_frequency = timedelta(seconds=convert_frequency_seconds)
+    upper_limit_record_time = params.get('upper_limit_record_time', 30)
     quiet_time = params.get('seconds_of_silence_between_lines', 0.5)
     last_sample = bytes()
     quiet_samples = 0
     sample_size = paudio.get_sample_size(pyaudio.paInt16)
-    is_active_transcriber = None
     while True:
-        if is_active_transcriber:
+        if is_active_transcriber and audio_type and not myqueue.empty():
             current_time = datetime.utcnow()
-            convert_frequency_seconds = float(params.get('transcribe_rate', 0.5))
-            convert_frequency = timedelta(seconds=convert_frequency_seconds)
-
             next_convert_instance = next_convert_instance or current_time + convert_frequency
+
             if current_time > next_convert_instance:
                 next_convert_instance += convert_frequency
+                sentence_completed = False
+                while not myqueue.empty():
+                    content_data = myqueue.get()
+                    power = audioop.rms(content_data, sample_size)
+                    quiet_samples = quiet_samples + 1 if power < power_slider.value else 0
+                    if quiet_samples > AUDIO_SAMPLING_FREQ / FPB * quiet_time:
+                        sentence_completed = True
+                        last_sample = bytes()
+                    last_sample += content_data
 
                 audio_wav_file = io.BytesIO()
                 wav_writer:wave.Wave_write = wave.open(audio_wav_file, "wb")
@@ -380,7 +432,32 @@ def main(page: ft.Page):
                 audio_as_np_float32 = audio_as_np_int16.astype(numpy.float32)
                 audio_normalised = audio_as_np_float32 / LARGEST_SHORT_INT16
 
-                # transcribe audio_normalized
+                selected_lang = None
+                if lang_selector.value != 'Auto':
+                    selected_lang = lang_selector.value
+
+                activity = 'transcribe'
+                if selected_lang != 'en' and translate_lang_box.value:
+                    activity = 'translate'
+
+                result = audio_type.transcribe(audio_normalised, language=selected_lang, task=activity)
+                text = result['text'].strip()
+
+                text_color = None
+                if text_bg_box.value:
+                    text_color = ft.colors.BLACK if nightmode_box.value else ft.colors.WHITE
+
+                if not sentence_completed and convertion_lst.controls:
+                    convertion_lst.controls[-1].value = text
+                elif not convertion_lst.controls or (convertion_lst.controls and convertion_lst.controls[-1].value):
+                    convertion_lst.controls.append(ft.Text(text, selectable=True, size=int(text_size_selector.value), bgcolor=text_color))
+                convertion_lst.update()
+
+                audio_duration_in_seconds  = samples / float(AUDIO_SAMPLING_FREQ)
+                if audio_duration_in_seconds > upper_limit_record_time:
+                    last_sample = bytes()
+                    convertion_lst.controls.append(ft.Text('', selectable=True, size=int(text_size_selector.value), bgcolor=text_color))
+        sleep(0.1)
 
 if __name__ == "__main__":
     ft.app(target=main)
