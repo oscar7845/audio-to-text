@@ -20,17 +20,47 @@ def main(page: ft.Page):
        page.window_always_on_top = keep_above_box.value
        page.update()
 
-    keep_above_box = ft.Checkbox(label="Keep Above", value=params.get('keep_above', False), on_change=keep_window_above_method)
+    keep_above_box = ft.Checkbox(on_change=keep_window_above_method)
 
-    def keep_window_above_method():
-        pass
+    def text_background_method(_):
+        for list_item in convertion_lst.controls:
+            if text_bg_box.value:
+                list_item.bgcolor = ft.colors.BLACK if nightmode_box.value else ft.colors.WHITE
+            else:
+                list_item.bgcolor = None
+        convertion_lst.update()
+
+    text_bg_box = ft.Checkbox(on_change=text_background_method)
+    nightmode_box = ft.Checkbox()
+    convertion_lst = ft.ListView()
+
 
     def night_theme_method():
+        page.theme_mode = ft.ThemeMode.DARK if nightmode_box.value else ft.ThemeMode.LIGHT
+        text_background_method()
         page.update()
+    night_theme_method(None)
     
 
     def font_size_method():
+        for list_item in convertion_lst.controls:
+            list_item.size = int(text_size_selector.value)
+        convertion_lst.update()
+
+    text_size_selector = ft.Dropdown()
+
+    def translate_language_method():
         pass
+
+    lang_selector = ft.Dropdown(
+        on_change=translate_language_method
+    )
+    translate_lang_box = ft.Checkbox(disabled=lang_selector.value == 'en')
+    translate_lang_box.disabled = True # otherwise default on
+
+    ##
+    # User Interface
+    ##
 
     # Save all the params
     params = {
