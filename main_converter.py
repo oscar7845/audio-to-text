@@ -1,6 +1,8 @@
 import flet as ft
 import io, os, yaml
 import pyaudio
+from whisper.tokenizer import LANGUAGES
+
 
 def main(page: ft.Page):  
     PEAK_POW = 5000
@@ -47,14 +49,51 @@ def main(page: ft.Page):
             list_item.size = int(text_size_selector.value)
         convertion_lst.update()
 
-    text_size_selector = ft.Dropdown()
+    text_size_selector = ft.Dropdown(
+        options=[ft.dropdown.Option(size) for size in range(8, 66, 2)],
+        label="Selected Text Size",
+        value=params.get('text_size', 24),
+        on_change=font_size_method,
+        text_size=15,
+    )
 
     def translate_language_method():
         pass
 
+    lang_options = [ft.dropdown.Option("Auto")]
+    lang_options += [ft.dropdown.Option(abbr, text=lang.capitalize()) for abbr, lang in LANGUAGES.items()]
     lang_selector = ft.Dropdown(
+        options=lang_options,
+        label="Selected Language",
+        value=params.get('language', "Auto"),
+        text_size=15,
         on_change=translate_language_method
     )
+
+
+    def speech_processor_method(_):
+        page.splash = ft.Container(
+            content=ft.ProgressRing(),
+            alignment=ft.alignment.center
+        )
+        page.update()   
+
+    convertion_text = ft.Text("Start")
+    convertion_icon = ft.Icon("play_arrow_rounded")
+
+    convertion_button = ft.ElevatedButton(
+        content=ft.Row(
+            [
+                convertion_icon,
+                convertion_text
+            ],
+            expand=True,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+        on_click=speech_processor_method,
+    )
+
     translate_lang_box = ft.Checkbox(disabled=lang_selector.value == 'en')
     translate_lang_box.disabled = True # otherwise default on
 
@@ -142,7 +181,13 @@ def main(page: ft.Page):
     page.add(
         params_config,
         ft.Container(
+            content=convertion_button,
+            padding=ft.padding.only(left=10, right=45, top=5)
+        ),
+        ft.Container(
             content=convertion_lst,
+            padding=ft.padding.only(left=15, right=45, top=5),
+            expand=True,
         ),
     )
 
