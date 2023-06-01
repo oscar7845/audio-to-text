@@ -3,14 +3,17 @@ import io, os, yaml
 import pyaudio
 from whisper.tokenizer import LANGUAGES
 from threading import Thread
-
+import numpy
 import audioop
+import wave
+from datetime import datetime
+from datetime import timedelta
 
 def main(page: ft.Page):  
     PEAK_POW = 5000
     AUDIO_SAMPLING_FREQ = 16000
     FPB = 1024
-    LARGEST_SHORT_INT16 = 32767 
+    LARGEST_SHORT_INT16 = 32767   # https://stackoverflow.com/a/62298670
 
     # Setting up the window appearence  
     page.title = "Audio to Text App"
@@ -249,15 +252,54 @@ def main(page: ft.Page):
     start_recording_thread = True
 
     def recording_thread_method(mystream:pyaudio.Stream):
+        nonlocal PEAK_POW
         sample_size = paudio.get_sample_size(pyaudio.paInt16)
+        
         while start_recording_thread:
+            # We record very fast in order to update volume bar as fast as possible
             content_data = mystream.read(FPB)
             power = audioop.rms(content_data, sample_size)
+            
             if power > PEAK_POW:
                 PEAK_POW = power
                 power_slider.max = PEAK_POW
                 power_slider.update()
-            
+
+    next_convert_instance = None
+    quiet_time = params.get('seconds_of_silence_between_lines', 0.5)
+    last_sample = bytes()
+    quiet_samples = 0
+    sample_size = paudio.get_sample_size(pyaudio.paInt16)
+    is_active_transcriber = None
+    while True:
+        if is_active_transcriber:
+            current_time = datetime.utcnow()
+            convert_frequency_seconds = float(params.get('transcribe_rate', 0.5))
+            convert_frequency = timedelta(seconds=convert_frequency_seconds)
+
+            next_convert_instance = next_convert_instance or current_time + convert_frequency
+            if current_time > next_convert_instance:
+                next_convert_instance += convert_frequency
+
+                audio_wav_file = io.BytesIO()
+                wav_writer:wave.Wave_write = wave.open(audio_wav_file, "wb")
+                wav_writer.setframerate(AUDIO_SAMPLING_FREQ)
+                wav_writer.setsampwidth(paudio.get_sample_size(pyaudio.paInt16))
+                wav_writer.setnchannels(1)
+                wav_writer.writeframes(last_sample)
+                wav_writer.close()
+
+                audio_wav_file.seek(0)
+                wav_reader:wave.Wave_read = wave.open(audio_wav_file)
+                samples = wav_reader.getnframes()
+                audio = wav_reader.readframes(samples)
+                wav_reader.close()
+
+                audio_as_np_int16 = numpy.frombuffer(audio, dtype=numpy.int16)
+                audio_as_np_float32 = audio_as_np_int16.astype(numpy.float32)
+                audio_normalised = audio_as_np_float32 / LARGEST_SHORT_INT16
+
+                # transcribe audio_normalized
 
 if __name__ == "__main__":
     ft.app(target=main)
