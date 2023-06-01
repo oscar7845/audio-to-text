@@ -2,7 +2,9 @@ import flet as ft
 import io, os, yaml
 import pyaudio
 from whisper.tokenizer import LANGUAGES
+from threading import Thread
 
+import audioop
 
 def main(page: ft.Page):  
     PEAK_POW = 5000
@@ -18,6 +20,9 @@ def main(page: ft.Page):
     page.window_height = page.window_height if page.window_height is not None else 820.0
 
     # on change
+
+    # need new constants for methods
+    
     def keep_window_above_method(_):
        page.window_always_on_top = keep_above_box.value
        page.update()
@@ -41,13 +46,65 @@ def main(page: ft.Page):
         page.theme_mode = ft.ThemeMode.DARK if nightmode_box.value else ft.ThemeMode.LIGHT
         text_background_method()
         page.update()
+
+
     night_theme_method(None)
-    
+    keep_window_above_method(None)
+    text_background_method(None)    
 
     def font_size_method():
         for list_item in convertion_lst.controls:
             list_item.size = int(text_size_selector.value)
         convertion_lst.update()
+
+    params = {
+        'window_width': page.window_width,
+        'window_height': page.window_height,
+        'keep_above': keep_above_box.value,
+        'night_mode': nightmode_box.value,
+        'text_background': text_bg_box.value
+    }
+    #-----MAIN-----#
+
+    def speech_processor_method(_):
+        page.splash = ft.Container(
+            content=ft.ProgressRing(),
+            alignment=ft.alignment.center
+        )
+        page.update()   
+
+        if not is_active_transcriber:
+            mytype = model_selector.value
+            if mytype != "large" and lang_selector.value == 'en':
+                mytype = mytype + ".en"
+            type_index = int(mic_selector.value)
+            if not data_collection_thread:
+                mystream = paudio.open(format=pyaudio.paInt16,
+                                       channels=1,
+                                       rate=AUDIO_SAMPLING_FREQ,
+                                       input=True,
+                                       frames_per_buffer=FPB,
+                                       input_device_index=type_index)
+                data_collection_thread = Thread(target=recording_thread_method, args=[mystream])
+                data_collection_thread.start()
+
+            convertion_text.value = "Stop Transcribing"
+            convertion_icon.name = "end_transcriber"
+
+            params_config.visible = False
+
+            is_active_transcriber = True
+        else:
+            convertion_text.value = "Start Receiving Audio"
+            convertion_icon.name = "play_arrow_rounded"
+            convertion_button.bgcolor = ft.colors.TEAL_400
+
+            
+            if data_collection_thread:
+                data_collection_thread.join()
+                data_collection_thread = None
+
+        page.update()
 
     text_size_selector = ft.Dropdown(
         options=[ft.dropdown.Option(size) for size in range(8, 66, 2)],
@@ -96,16 +153,11 @@ def main(page: ft.Page):
 
     translate_lang_box = ft.Checkbox(disabled=lang_selector.value == 'en')
     translate_lang_box.disabled = True # otherwise default on
+    
 
     ##
     # User Interface
     ##
-
-    # Save all the params
-    params = {
-        'window_width': page.window_width,
-        'window_height': page.window_height
-    }
 
     model_selector = ft.Dropdown(
         options=[
@@ -178,6 +230,9 @@ def main(page: ft.Page):
 
     #--#
 
+    power_slider = ft.Slider(min=0, max=PEAK_POW, value=params.get('volume_threshold', 300), expand=True, height=20)
+
+
     page.add(
         params_config,
         ft.Container(
@@ -191,6 +246,18 @@ def main(page: ft.Page):
         ),
     )
 
+    start_recording_thread = True
+
+    def recording_thread_method(mystream:pyaudio.Stream):
+        sample_size = paudio.get_sample_size(pyaudio.paInt16)
+        while start_recording_thread:
+            content_data = mystream.read(FPB)
+            power = audioop.rms(content_data, sample_size)
+            if power > PEAK_POW:
+                PEAK_POW = power
+                power_slider.max = PEAK_POW
+                power_slider.update()
+            
 
 if __name__ == "__main__":
     ft.app(target=main)
