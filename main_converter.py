@@ -1,34 +1,30 @@
-import flet as ft
-import io, os, yaml
-import pyaudio
-from whisper.tokenizer import LANGUAGES
-from threading import Thread
-import numpy
-import audioop
-import wave
-from datetime import datetime
-from datetime import timedelta
-import whisper
+import io
+from datetime import datetime, timedelta
 from queue import Queue
-import torch
+from threading import Thread
 from time import sleep
 
+import audioop
+import flet as ft
+import numpy
+import pyaudio
+import torch
+import wave
+import whisper
+import yaml
+from whisper.tokenizer import LANGUAGES
 
-def main(page: ft.Page):  
-    PEAK_POW = 5000
-    AUDIO_SAMPLING_FREQ = 16000
-    FPB = 1024
-    LARGEST_SHORT_INT16 = 32767   # https://stackoverflow.com/a/62298670
+from constants import app_params, params
+from constants import AUDIO_SAMPLING_FREQ, FPB, LARGEST_SHORT_INT16
 
-    # Setting up the window appearence  
+def main(page: ft.page):
+    # Setting up the window appearence
     page.title = "Audio to Text App"
     page.window_min_width = 700.0
+    page.window_width = 700.0
     page.window_min_height = 475.0
-    page.window_min_width = 700.0
     page.window_height = params.get('window_height', 820.0)
-
-    app_params = "current_app_params.yaml"
-    params = yaml.safe_load(open(app_params, 'r')) if os.path.exists(app_params) else {}
+    PEAK_POW = 5000
 
     def keep_window_above_method(_):
        page.window_always_on_top = keep_above_box.value
@@ -62,7 +58,7 @@ def main(page: ft.Page):
     end_capture:function = None
     data_collection_thread:Thread = None
     myqueue = Queue()
-
+    
     def speech_processor_method(_):
         nonlocal audio_type, selected_audio_type, is_active_transcriber, end_capture, data_collection_thread, start_recording_thread
         page.splash = ft.Container(
@@ -178,11 +174,6 @@ def main(page: ft.Page):
 
         page.splash = None
         page.update()
-
-    ##
-    # User Interface
-    ##
-
     model_selector = ft.Dropdown(
         options=[
             ft.dropdown.Option('tiny', text="Very small (Fastest, low quality)"),
@@ -274,6 +265,7 @@ def main(page: ft.Page):
             content=ft.Row(
                 [
                     model_selector,
+                    ft.Icon("help_outline", tooltip="Select type for speech transcription.\nTypes are downloaded the first time they are used.\n It could take time for heavy ones."),
                 
                 ],
                 spacing=10,
@@ -284,6 +276,7 @@ def main(page: ft.Page):
             content=ft.Row(
                 [
                     mic_selector,
+                    ft.Icon("help_outline", tooltip="This is the audio input device. \nAudio from this device will be taken as input."),
                 ],
                 spacing=10,
             ),
@@ -323,6 +316,7 @@ def main(page: ft.Page):
             content=ft.Row(
                 [
                     power_slider,
+                    ft.Icon("help_outline", tooltip="Volume required to start decoding audio.\nMax volume auto adjusts.")
                 ],
                 expand=True,
             ),
@@ -364,6 +358,10 @@ def main(page: ft.Page):
             expand=True,
         ),
     )
+
+    night_theme_method(None)
+    keep_window_above_method(None)
+    text_background_method(None)
 
     start_recording_thread = True
 
