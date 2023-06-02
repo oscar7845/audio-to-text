@@ -379,9 +379,9 @@ def main(page: ft.page):
     )
 
     # set params that could not have been loaded
+    text_background_method(None)
     night_theme_method(None)
     keep_window_above_method(None)
-    text_background_method(None)
 
     #------------------#
     # Audio processing #
