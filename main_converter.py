@@ -26,6 +26,10 @@ def main(page: ft.page):
     page.window_height = params.get('window_height', 820.0)
     PEAK_POW = 5000
 
+    #---------------------#
+    # On change functions #
+    #---------------------#
+
     def keep_window_above_method(_):
        page.window_always_on_top = keep_above_box.value
        page.update()
@@ -72,6 +76,7 @@ def main(page: ft.page):
             if mytype != "large" and lang_selector.value == 'en':
                 mytype = mytype + ".en"
 
+            # Reload the audio type only if got changed
             if not audio_type or not selected_audio_type:
                 device = "cuda" if torch.has_cuda else 'cpu'
                 audio_type = whisper.load_model(mytype, device)
@@ -97,12 +102,14 @@ def main(page: ft.page):
             convertion_icon.name = "end_transcriber"
             convertion_button.bgcolor = ft.colors.DEEP_ORANGE_400
 
+            # Turn off all of the controls
             model_selector.disabled = True
             mic_selector.disabled = True
             lang_selector.disabled = True
             translate_lang_box.disabled = True
             params_config.visible = False
 
+            # Make ui see-trough
             if transparent_box.value:
                 page.window_bgcolor = ft.colors.TRANSPARENT
                 page.bgcolor = ft.colors.TRANSPARENT
@@ -111,6 +118,7 @@ def main(page: ft.page):
                 draggable_zone1.visible = True
                 draggable_zone2.visible = True
 
+            # Save all the params
             params = {
                 'speech_model': model_selector.value,
                 'translate': translate_lang_box.value,
@@ -139,6 +147,7 @@ def main(page: ft.page):
             convertion_button.bgcolor = ft.colors.TEAL_400
             sound_level_bar.value = 0.01
 
+            # Interrupt record thread
             try:
                 if data_collection_thread:
                     start_recording_thread = False
@@ -147,18 +156,22 @@ def main(page: ft.page):
             except RuntimeError as e:
                 print(f"Error while interrupting the data collection thread: {e}")
 
+            # Save the final sample while draining the rest of the data so that we run main loop again. 
+            # This so that we create a new line instead of editing last line when starting the transcriber again
             content_data = None
             while not myqueue.empty():
                 content_data = myqueue.get()
             if content_data:
                 myqueue.put(content_data)
 
+            # Initiliaze controls by enabling them
             model_selector.disabled = False
             mic_selector.disabled = False
             lang_selector.disabled = False
             translate_lang_box.disabled = lang_selector.value == 'en'
             params_config.visible = True
 
+            # Customize here page appearance 
             page.window_bgcolor = None
             page.bgcolor = None
             page.window_title_bar_hidden = False
@@ -166,6 +179,7 @@ def main(page: ft.page):
             draggable_zone1.visible = False
             draggable_zone2.visible = False
 
+            # Contain content transcribed and set is active to false
             text_file = "content.txt"
             with open(text_file, 'w+', encoding='utf-8') as f:
                 f.writelines('\n'.join([item.value for item in convertion_lst.controls]))
@@ -174,6 +188,11 @@ def main(page: ft.page):
 
         page.splash = None
         page.update()
+
+    #-----------#
+    # UI config #
+    #-----------#
+
     model_selector = ft.Dropdown(
         options=[
             ft.dropdown.Option('tiny', text="Very small (Fastest, low quality)"),
@@ -359,9 +378,14 @@ def main(page: ft.page):
         ),
     )
 
+    # set params that could not have been loaded
     night_theme_method(None)
     keep_window_above_method(None)
     text_background_method(None)
+
+    #------------------#
+    # Audio processing #
+    #------------------#
 
     start_recording_thread = True
 
@@ -396,10 +420,15 @@ def main(page: ft.page):
     quiet_samples = 0
     sample_size = paudio.get_sample_size(pyaudio.paInt16)
     while True:
+        # Convert at a set rate the data that comes in from recording thread
         if is_active_transcriber and audio_type and not myqueue.empty():
             current_time = datetime.utcnow()
+            # Set next_convert_instance for first time
             next_convert_instance = next_convert_instance or current_time + convert_frequency
 
+            # To improve accuracy of transcriptions and lessen strain on the GPU,
+            # only run transcription every few, but transcription does not happen instantly.
+            # Instant transcription is not accurate and there is still some latency
             if current_time > next_convert_instance:
                 next_convert_instance += convert_frequency
                 sentence_completed = False
@@ -407,11 +436,14 @@ def main(page: ft.page):
                     content_data = myqueue.get()
                     power = audioop.rms(content_data, sample_size)
                     quiet_samples = quiet_samples + 1 if power < power_slider.value else 0
+
+                    # If there is sufficient silence start over bufer and add a new line
                     if quiet_samples > AUDIO_SAMPLING_FREQ / FPB * quiet_time:
                         sentence_completed = True
                         last_sample = bytes()
                     last_sample += content_data
 
+                # Save the raw frames as a WAV file
                 audio_wav_file = io.BytesIO()
                 wav_writer:wave.Wave_write = wave.open(audio_wav_file, "wb")
                 wav_writer.setframerate(AUDIO_SAMPLING_FREQ)
@@ -420,12 +452,15 @@ def main(page: ft.page):
                 wav_writer.writeframes(last_sample)
                 wav_writer.close()
 
+                # Read the audio data excluding wave headers
                 audio_wav_file.seek(0)
                 wav_reader:wave.Wave_read = wave.open(audio_wav_file)
                 samples = wav_reader.getnframes()
                 audio = wav_reader.readframes(samples)
                 wav_reader.close()
 
+                # https://stackoverflow.com/a/62298670
+                # Convert wave data to a numpy array for the type
                 audio_as_np_int16 = numpy.frombuffer(audio, dtype=numpy.int16)
                 audio_as_np_float32 = audio_as_np_int16.astype(numpy.float32)
                 audio_normalised = audio_as_np_float32 / LARGEST_SHORT_INT16
@@ -448,9 +483,12 @@ def main(page: ft.page):
                 if not sentence_completed and convertion_lst.controls:
                     convertion_lst.controls[-1].value = text
                 elif not convertion_lst.controls or (convertion_lst.controls and convertion_lst.controls[-1].value):
+                    # Adding another item: always if list is empty, and if not empty add only if previous item is not an empty str
+                    # Most appends are empty str since quiet period triggers sentence_completed
                     convertion_lst.controls.append(ft.Text(text, selectable=True, size=int(text_size_selector.value), bgcolor=text_color))
                 convertion_lst.update()
 
+                # If time permitted for recording is up we add an empty line to indicate that the buffer needs to be broken up
                 audio_duration_in_seconds  = samples / float(AUDIO_SAMPLING_FREQ)
                 if audio_duration_in_seconds > upper_limit_record_time:
                     last_sample = bytes()
