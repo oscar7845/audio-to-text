@@ -109,7 +109,7 @@ def main(page: ft.page):
             translate_lang_box.disabled = True
             params_config.visible = False
 
-            # Make ui see-trough
+            # Make ui see-through
             if transparent_box.value:
                 page.window_bgcolor = ft.colors.TRANSPARENT
                 page.bgcolor = ft.colors.TRANSPARENT
@@ -132,9 +132,9 @@ def main(page: ft.page):
                 'text_background': text_bg_box.value,
                 'transparent': transparent_box.value,
                 'volume_threshold': power_slider.value,
-                'transcribe_rate': convert_frequency_seconds,
+                'convert_frequency_seconds': convert_frequency_seconds,
                 'upper_limit_record_time': upper_limit_record_time,
-                'seconds_of_silence_between_lines': quiet_time,
+                'lines_quiet_time_in_sec': quiet_time,
             }
 
             with open(app_params, 'w+') as f:
@@ -412,10 +412,10 @@ def main(page: ft.page):
 
 
     next_convert_instance = None
-    convert_frequency_seconds = float(params.get('transcribe_rate', 0.5))
+    convert_frequency_seconds = float(params.get('convert_frequency_seconds', 0.5))
     convert_frequency = timedelta(seconds=convert_frequency_seconds)
     upper_limit_record_time = params.get('upper_limit_record_time', 30)
-    quiet_time = params.get('seconds_of_silence_between_lines', 0.5)
+    quiet_time = params.get('lines_quiet_time_in_sec', 0.5)
     last_sample = bytes()
     quiet_samples = 0
     sample_size = paudio.get_sample_size(pyaudio.paInt16)
