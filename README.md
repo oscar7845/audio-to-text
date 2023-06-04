@@ -19,9 +19,9 @@ datas=[
 pip install pyinstaller
 python -m PyInstaller your_main_file_name.py --onefile --icon=your_icon_name.ico -w    
 navigate dist folder and run .exe  
-pyinstaller your_main_file_name.spec (to build from .spec created)
+pyinstaller your_main_file_name.spec
 ```
-## Stuff learned
+## Things learned
 During this project I learned how to use multiple libraries such as PyAudio, Whisper, and Flet, and integrate them into one functioning system. I gained an understanding of threading and I got familiar with audio processing concepts.
 ## Roadmap
 The next step would be to add some functionalities such as automatic topic segmentation and sentiment analysis so that you can understand the speaker's tone which is pretty fire. This has the potential to assist people affected by the anxieties associated with learning and find ways to make learning easier by creating new ways of interacting with the lecture materials.
